@@ -58,39 +58,47 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
     console.log("✅ Origin coordinates:", origin);
     console.log("✅ Destination coordinates:", destination);
 
-    // origin & destination should be objects: { latitude, longitude }
-    const url = `http://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.ltd};${destination.lng},${destination.ltd}?overview=false`;
+    // Calculate using Haversine as primary method (more reliable)
+    console.log("📏 Using Haversine distance calculation...");
+    const distance = calculateHaversineDistance(
+      origin.ltd,
+      origin.lng,
+      destination.ltd,
+      destination.lng
+    );
 
-    console.log("🔗 OSRM URL:", url);
+    // Try OSRM for more accurate routing, but don't fail if it times out
+    try {
+      const url = `http://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.ltd};${destination.lng},${destination.ltd}?overview=false`;
 
-    const response = await axios.get(url, {
-      timeout: 10000, // 10 second timeout
-    });
+      console.log("🔗 Attempting OSRM route...");
 
-    const data = response.data;
+      const response = await axios.get(url, {
+        timeout: 5000, // 5 second timeout
+      });
 
-    console.log("✅ OSRM Response:", data);
+      const data = response.data;
 
-    if (!data.routes || data.routes.length === 0) {
-      // Fallback: Calculate rough distance using Haversine formula
-      console.log("⚠️ No route found, using fallback calculation");
-      const distance = calculateHaversineDistance(
-        origin.ltd,
-        origin.lng,
-        destination.ltd,
-        destination.lng
+      if (data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        console.log("✅ OSRM route found");
+        return {
+          distance_km: (route.distance / 1000).toFixed(2),
+          duration_min: (route.duration / 60).toFixed(2),
+        };
+      }
+    } catch (osrmError) {
+      console.warn(
+        "⚠️ OSRM timeout/error, falling back to Haversine:",
+        osrmError.message
       );
-      return {
-        distance_km: distance.toFixed(2),
-        duration_min: (distance * 1.5).toFixed(2), // Rough estimate: 1.5 min per km
-      };
     }
 
-    const route = data.routes[0];
-
+    // Fallback: Use Haversine calculation
+    console.log("📊 Using fallback Haversine calculation");
     return {
-      distance_km: (route.distance / 1000).toFixed(2), // meters → km
-      duration_min: (route.duration / 60).toFixed(2), // seconds → minutes
+      distance_km: distance.toFixed(2),
+      duration_min: (distance * 1.5).toFixed(2), // Rough estimate: 1.5 min per km
     };
   } catch (error) {
     console.error("❌ Error in getDistanceAndTime:", error.message);
