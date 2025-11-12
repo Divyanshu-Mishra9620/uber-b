@@ -144,21 +144,28 @@ const startRide = async ({ rideId, otp, captain }) => {
     .populate("captain")
     .select("+otp");
 
-  console.log("ride.service.startRide");
-  console.log(ride);
+  console.log("\n🔍 Ride details:");
+  console.log("  - Ride ID:", ride?._id);
+  console.log("  - Status:", ride?.status);
+  console.log("  - Stored OTP:", ride?.otp);
+  console.log("  - Provided OTP:", otp);
+  console.log("  - OTP Match:", ride?.otp === otp);
 
   if (!ride) {
     throw new Error("Ride not found");
   }
 
   if (ride.status !== "accepted") {
-    throw new Error("Ride not accepted");
+    throw new Error(
+      `Ride status is "${ride.status}", expected "accepted". Cannot start ride that hasn't been accepted by a captain.`
+    );
   }
 
   if (ride.otp !== otp) {
-    throw new Error("Invalid OTP");
+    throw new Error(`Invalid OTP. Expected: ${ride.otp}, Got: ${otp}`);
   }
 
+  // Update ride status to ongoing
   await rideModel.findOneAndUpdate(
     {
       _id: rideId,
@@ -167,6 +174,8 @@ const startRide = async ({ rideId, otp, captain }) => {
       status: "ongoing",
     }
   );
+
+  console.log("✅ Ride status updated to 'ongoing'");
 
   return ride;
 };

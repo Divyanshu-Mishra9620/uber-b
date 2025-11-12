@@ -48,11 +48,13 @@ const createRide = async (req, res, next) => {
       console.warn("  3. Captain location index not created in MongoDB");
     }
 
-    newRide.otp = "";
+    // DO NOT clear OTP - it's needed for verification later!
+    // newRide.otp = "";
 
     const rideWithUser = await rideModel
       .findOne({ _id: newRide._id })
-      .populate("userId");
+      .populate("userId")
+      .select("+otp"); // Include OTP when sending to captain
 
     console.log(
       `\n📤 Broadcasting new-ride to ${captainsInRadius.length} captains`
@@ -129,18 +131,24 @@ const confirmRide = async (req, res, next) => {
 const startRide = async (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    console.error("❌ Validation errors in startRide:", errors.array());
+    return res.status(400).json({
+      error: "Validation failed",
+      details: errors.array(),
+    });
   }
 
   const { rideId, otp } = req.query;
 
   try {
+    console.log(`\n🏁 Starting ride: ${rideId} with OTP: ${otp}`);
+
     const ride = await rideService.startRide({
       rideId,
       otp,
       captain: req.captain,
     });
-    console.log(ride);
+    console.log("✅ Ride started successfully");
 
     sendMessageToSocketId(ride.userId.socketId, {
       event: "ride-started",
@@ -149,7 +157,11 @@ const startRide = async (req, res, next) => {
 
     return res.status(200).json(ride);
   } catch (err) {
-    return res.status(500).json({ message: err.message });
+    console.error("❌ Error starting ride:", err.message);
+    return res.status(400).json({
+      error: err.message,
+      message: "Failed to start ride",
+    });
   }
 };
 
