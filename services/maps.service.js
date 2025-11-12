@@ -51,11 +51,18 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
       throw new Error(`Destination error: ${destination.error}`);
     }
 
+    console.log("Origin:", origin);
+    console.log("Destination:", destination);
+
     // origin & destination should be objects: { latitude, longitude }
     const url = `http://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.ltd};${destination.lng},${destination.ltd}?overview=false`;
 
+    console.log("OSRM URL:", url);
+
     const response = await axios.get(url);
     const data = response.data;
+
+    console.log("OSRM Response:", data);
 
     if (!data.routes || data.routes.length === 0) {
       throw new Error("No route found between the two locations");
