@@ -11,17 +11,22 @@ const getAddressCoordinate = async (address) => {
       address
     )}&format=json&limit=1`;
 
+    console.log("🔍 Searching address:", address);
+
     const response = await axios.get(url, {
       headers: {
-        "User-Agent": "UberCloneApp/1.0 (agarwaldevang664@gmail.com)", // Required by Nominatim
+        "User-Agent": "UberCloneApp/1.0 (agarwaldevang664@gmail.com)",
       },
+      timeout: 8000, // 8 second timeout
     });
 
     const data = response.data;
 
     if (!data || data.length === 0) {
-      throw new Error(`Address "${address}" not found`);
+      throw new Error(`Address "${address}" not found in the system`);
     }
+
+    console.log("✅ Address found:", address, "→", data[0].display_name);
 
     // Extract latitude & longitude
     return {
@@ -29,7 +34,7 @@ const getAddressCoordinate = async (address) => {
       lng: parseFloat(data[0].lon),
     };
   } catch (error) {
-    console.error("Error in getAddressCoordinate:", error.message);
+    console.error("❌ Error in getAddressCoordinate:", error.message);
     throw error;
   }
 };
@@ -40,32 +45,45 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
       throw new Error("Origin and destination are required");
     }
 
+    console.log(
+      "📍 Getting coordinates for:",
+      originAddress,
+      "→",
+      destinationAddress
+    );
+
     const origin = await getAddressCoordinate(originAddress);
     const destination = await getAddressCoordinate(destinationAddress);
 
-    if (origin.error) {
-      throw new Error(`Origin error: ${origin.error}`);
-    }
-
-    if (destination.error) {
-      throw new Error(`Destination error: ${destination.error}`);
-    }
-
-    console.log("Origin:", origin);
-    console.log("Destination:", destination);
+    console.log("✅ Origin coordinates:", origin);
+    console.log("✅ Destination coordinates:", destination);
 
     // origin & destination should be objects: { latitude, longitude }
     const url = `http://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.ltd};${destination.lng},${destination.ltd}?overview=false`;
 
-    console.log("OSRM URL:", url);
+    console.log("🔗 OSRM URL:", url);
 
-    const response = await axios.get(url);
+    const response = await axios.get(url, {
+      timeout: 10000, // 10 second timeout
+    });
+
     const data = response.data;
 
-    console.log("OSRM Response:", data);
+    console.log("✅ OSRM Response:", data);
 
     if (!data.routes || data.routes.length === 0) {
-      throw new Error("No route found between the two locations");
+      // Fallback: Calculate rough distance using Haversine formula
+      console.log("⚠️ No route found, using fallback calculation");
+      const distance = calculateHaversineDistance(
+        origin.ltd,
+        origin.lng,
+        destination.ltd,
+        destination.lng
+      );
+      return {
+        distance_km: distance.toFixed(2),
+        duration_min: (distance * 1.5).toFixed(2), // Rough estimate: 1.5 min per km
+      };
     }
 
     const route = data.routes[0];
@@ -75,9 +93,24 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
       duration_min: (route.duration / 60).toFixed(2), // seconds → minutes
     };
   } catch (error) {
-    console.error("Error in getDistanceAndTime:", error.message);
+    console.error("❌ Error in getDistanceAndTime:", error.message);
     throw error;
   }
+};
+
+// Haversine formula to calculate distance between two coordinates
+const calculateHaversineDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 };
 
 const getAutoCompleteSuggestions = async (input) => {

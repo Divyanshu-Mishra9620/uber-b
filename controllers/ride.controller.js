@@ -69,11 +69,16 @@ const getFare = async (req, res, next) => {
   }
   const { pickup, destination } = req.query;
   try {
+    console.log("📍 Calculating fare for:", pickup, "→", destination);
     const fareDetails = await rideService.getFare({ pickup, destination });
+    console.log("✅ Fare calculated:", fareDetails);
     res.status(200).json(fareDetails);
   } catch (error) {
-    console.error("Get fare error:", error);
-    res.status(500).json({ error: error.message });
+    console.error("❌ Get fare error:", error.message);
+    res.status(500).json({
+      error: error.message,
+      message: "Failed to calculate fare. Please try again.",
+    });
   }
 };
 
