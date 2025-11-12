@@ -30,8 +30,7 @@ const createRide = async (req, res, next) => {
       throw new Error(pickupCoordinates.error);
     }
 
-    console.log(pickupCoordinates);
-    console.log("hello3");
+    console.log("📍 Pickup coordinates:", pickupCoordinates);
 
     const captainsInRadius = await mapService.getCaptainsInTheRadius(
       pickupCoordinates.ltd,
@@ -39,20 +38,38 @@ const createRide = async (req, res, next) => {
       1000
     );
 
-    newRide.otp = "";
+    console.log(`\n👥 Found ${captainsInRadius.length} captains in radius`);
 
-    console.log("ride.controller.captainsinradius" + captainsInRadius);
+    if (captainsInRadius.length === 0) {
+      console.warn("⚠️ WARNING: No captains found in 1000km radius!");
+      console.warn("Possible reasons:");
+      console.warn("  1. No captains have joined and updated their location");
+      console.warn("  2. Captains are outside the 1000km search radius");
+      console.warn("  3. Captain location index not created in MongoDB");
+    }
+
+    newRide.otp = "";
 
     const rideWithUser = await rideModel
       .findOne({ _id: newRide._id })
       .populate("userId");
 
-    captainsInRadius.map((captain) => {
-      console.log("ride.controller.captain" + captain);
-      sendMessageToSocketId(captain.socketId, {
-        event: "new-ride",
-        data: rideWithUser,
-      });
+    console.log(
+      `\n📤 Broadcasting new-ride to ${captainsInRadius.length} captains`
+    );
+
+    captainsInRadius.forEach((captain) => {
+      console.log(
+        `   → Sending to captain: ${captain._id} (socketId: ${captain.socketId})`
+      );
+      if (captain.socketId) {
+        sendMessageToSocketId(captain.socketId, {
+          event: "new-ride",
+          data: rideWithUser,
+        });
+      } else {
+        console.warn(`   ⚠️ Captain ${captain._id} has no socketId`);
+      }
     });
 
     res.status(201).json(newRide);

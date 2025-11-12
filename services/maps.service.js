@@ -180,17 +180,25 @@ const getCaptainsInTheRadius = async (ltd, lng, radiusKm) => {
       throw new Error("Latitude, longitude, and radius are required");
     }
 
+    console.log(
+      `🔍 Searching for captains near [${lng}, ${ltd}] within ${radiusKm}km`
+    );
+
+    // Convert radius from km to radians (radius in radians = distance in km / Earth's radius in km)
+    const radiusInRadians = radiusKm / 6371;
+
     const captains = await captainModel.find({
       location: {
         $geoWithin: {
-          $centerSphere: [[lng, ltd], radiusKm / 6371],
+          $centerSphere: [[lng, ltd], radiusInRadians],
         },
       },
     });
 
+    console.log(`✅ Found ${captains.length} captains in radius`);
     return captains;
   } catch (error) {
-    console.error("Error in getCaptainsInTheRadius:", error.message);
+    console.error("❌ Error in getCaptainsInTheRadius:", error.message);
     throw error;
   }
 };

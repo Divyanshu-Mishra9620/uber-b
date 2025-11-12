@@ -40,16 +40,28 @@ function initializeSocket(server) {
     socket.on("update-location-captain", async (data) => {
       const { userId, location } = data;
 
-      if (!location || !location.ltd || !location.lng) {
+      if (
+        !location ||
+        location.ltd === undefined ||
+        location.lng === undefined
+      ) {
         return socket.emit("error", { message: "Invalid location data" });
       }
 
-      await captainModel.findByIdAndUpdate(userId, {
-        location: {
-          ltd: location.ltd,
-          lng: location.lng,
-        },
-      });
+      try {
+        await captainModel.findByIdAndUpdate(userId, {
+          location: {
+            type: "Point",
+            coordinates: [location.lng, location.ltd], // GeoJSON format: [longitude, latitude]
+          },
+        });
+        console.log(
+          `✅ Captain ${userId} location updated: [${location.lng}, ${location.ltd}]`
+        );
+      } catch (error) {
+        console.error(`❌ Error updating captain location:`, error.message);
+        socket.emit("error", { message: "Failed to update location" });
+      }
     });
 
     socket.on("disconnect", () => {
