@@ -58,6 +58,24 @@ app.get("/health", (req, res) => {
   });
 });
 
+// Debug endpoint - Check environment variables (only for development)
+app.get("/debug/env", (req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  res.status(200).json({
+    PORT: process.env.PORT ? "✅ SET" : "❌ NOT SET",
+    JWT_SECRET: process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET",
+    DB_CONNECT: process.env.DB_CONNECT
+      ? "✅ SET (first 50 chars): " +
+        process.env.DB_CONNECT.substring(0, 50) +
+        "..."
+      : "❌ NOT SET",
+    NODE_ENV: process.env.NODE_ENV || "development",
+  });
+});
+
 app.get("/", (req, res) => {
   res.send("Hello World");
 });
