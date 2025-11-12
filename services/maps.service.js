@@ -3,6 +3,10 @@ const captainModel = require("../models/captian.model");
 
 const getAddressCoordinate = async (address) => {
   try {
+    if (!address || address.trim().length === 0) {
+      throw new Error("Address is required");
+    }
+
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
       address
     )}&format=json&limit=1`;
@@ -16,7 +20,7 @@ const getAddressCoordinate = async (address) => {
     const data = response.data;
 
     if (!data || data.length === 0) {
-      return { error: "Address not found" };
+      throw new Error(`Address "${address}" not found`);
     }
 
     // Extract latitude & longitude
@@ -26,7 +30,7 @@ const getAddressCoordinate = async (address) => {
     };
   } catch (error) {
     console.error("Error in getAddressCoordinate:", error.message);
-    return { error: "Failed to fetch coordinates" };
+    throw error;
   }
 };
 
@@ -39,9 +43,14 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
     const origin = await getAddressCoordinate(originAddress);
     const destination = await getAddressCoordinate(destinationAddress);
 
-    if (!origin || !destination) {
-      return { error: "Could not fetch coordinates for one or both addresses" };
+    if (origin.error) {
+      throw new Error(`Origin error: ${origin.error}`);
     }
+
+    if (destination.error) {
+      throw new Error(`Destination error: ${destination.error}`);
+    }
+
     // origin & destination should be objects: { latitude, longitude }
     const url = `http://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.ltd};${destination.lng},${destination.ltd}?overview=false`;
 
@@ -49,7 +58,7 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
     const data = response.data;
 
     if (!data.routes || data.routes.length === 0) {
-      return { error: "No route found" };
+      throw new Error("No route found between the two locations");
     }
 
     const route = data.routes[0];
@@ -60,7 +69,7 @@ const getDistanceAndTime = async (originAddress, destinationAddress) => {
     };
   } catch (error) {
     console.error("Error in getDistanceAndTime:", error.message);
-    return { error: "Failed to fetch distance and time" };
+    throw error;
   }
 };
 
@@ -118,17 +127,25 @@ const getAutoCompleteSuggestions = async (input) => {
 // };
 
 const getCaptainsInTheRadius = async (ltd, lng, radiusKm) => {
-  const captains = await captainModel.find({
-        location: {
-            $geoWithin: {
-                $centerSphere: [ [ ltd, lng ], radiusKm / 6371 ]
-            }
-        }
+  try {
+    if (!ltd || !lng || !radiusKm) {
+      throw new Error("Latitude, longitude, and radius are required");
+    }
+
+    const captains = await captainModel.find({
+      location: {
+        $geoWithin: {
+          $centerSphere: [[lng, ltd], radiusKm / 6371],
+        },
+      },
     });
 
     return captains;
+  } catch (error) {
+    console.error("Error in getCaptainsInTheRadius:", error.message);
+    throw error;
   }
-
+};
 
 // try {
 //     if (!ltd || !lng || !radiusKm) {
@@ -147,4 +164,9 @@ const getCaptainsInTheRadius = async (ltd, lng, radiusKm) => {
 //     return captains;
 //   }
 
-module.exports = { getAddressCoordinate, getDistanceAndTime,getAutoCompleteSuggestions,getCaptainsInTheRadius };
+module.exports = {
+  getAddressCoordinate,
+  getDistanceAndTime,
+  getAutoCompleteSuggestions,
+  getCaptainsInTheRadius,
+};
