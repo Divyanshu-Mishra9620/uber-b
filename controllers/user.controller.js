@@ -11,9 +11,11 @@ async function registerUser(req, res, next) {
 
   try {
     const { fullname, email, password } = req.body;
+    console.log("📝 Registration attempt for email:", email);
 
     const isUserExists = await userModel.findOne({ email });
     if (isUserExists) {
+      console.log("❌ User already exists with email:", email);
       return res
         .status(400)
         .json({ message: "User with this email already exists" });
@@ -28,11 +30,18 @@ async function registerUser(req, res, next) {
       password: hashedPassword,
     });
 
-    const token = user.generateAuthToken();
+    console.log("✅ User created with ID:", user._id);
 
-    res.status(201).json({ token, user });
+    const token = user.generateAuthToken();
+    console.log("✅ Token generated for new user:", user._id);
+
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.status(201).json({ token, user: userResponse });
   } catch (error) {
-    console.error("Registration error:", error);
+    console.error("❌ Registration error:", error);
     res
       .status(500)
       .json({ message: "Registration failed", error: error.message });
@@ -47,24 +56,36 @@ async function loginUser(req, res, next) {
 
   try {
     const { email, password } = req.body;
+    console.log("🔐 Login attempt for email:", email);
 
     const user = await userModel.findOne({ email }).select("+password");
 
     if (!user) {
+      console.log("❌ User not found with email:", email);
       return res.status(401).json({ message: "Invalid email or password" });
     }
+
+    console.log("✅ User found, ID:", user._id);
 
     const isMatch = await user.comparePassword(password);
 
     if (!isMatch) {
+      console.log("❌ Password mismatch for user:", email);
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
     const token = user.generateAuthToken();
+    console.log("✅ Token generated for user:", user._id);
+
     res.cookie("token", token);
-    res.status(200).json({ token, user });
+
+    // Return user without password
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.status(200).json({ token, user: userResponse });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("❌ Login error:", error);
     res.status(500).json({ message: "Login failed", error: error.message });
   }
 }

@@ -48,8 +48,27 @@ app.use("/captains", captainRoute);
 app.use("/maps", mapsRoute);
 app.use("/rides", rideRoute);
 
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    message: "Server is running",
+    timestamp: new Date().toISOString(),
+    port: process.env.PORT || 3000,
+  });
+});
+
 app.get("/", (req, res) => {
   res.send("Hello World");
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("❌ Global error:", err);
+  res.status(err.status || 500).json({
+    message: err.message || "Internal Server Error",
+    error: process.env.NODE_ENV === "development" ? err : {},
+  });
 });
 
 module.exports = app;
