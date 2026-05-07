@@ -1,217 +1,344 @@
-const rideModel = require("../models/ride.model");
-const mapService = require("./maps.service");
-const crypto = require("crypto");
+import RideRepository from "../repositories/ride.repository.js";
+import CaptainRepository from "../repositories/captain.repository.js";
+import MapsService from "./maps.service.js";
+import CacheService from "./cache.service.js";
+import logger from "../utils/logger.js";
+import { RIDE_STATUS, SEARCH_RADIUS } from "../config/constants.js";
 
-const getFare = async ({ pickup, destination }) => {
-  if (!pickup || !destination) {
-    throw new Error("Pickup and destination are required to calculate fare");
+/**
+ * OPTIMIZED Ride Service
+ * - Business logic layer
+ * - Uses repositories for data access
+ * - Caching strategy
+ * - External service integration
+ */
+class RideService {
+  /**
+   * Create new ride
+   */
+  static async createRide(
+    userId,
+    pickupAddress,
+    dropoffAddress,
+    pickupCoordinates,
+    dropoffCoordinates,
+  ) {
+    try {
+      logger.info("[RideService] Creating ride", {
+        userId,
+        pickupAddress,
+        dropoffAddress,
+      });
+
+      // Get coordinates if not provided
+      let pickup = pickupCoordinates;
+      let dropoff = dropoffCoordinates;
+
+      if (!pickup) {
+        pickup = await MapsService.getAddressCoordinate(pickupAddress);
+      }
+
+      if (!dropoff) {
+        dropoff = await MapsService.getAddressCoordinate(dropoffAddress);
+      }
+
+      // Calculate fare
+      const fareEstimate = await MapsService.getFareEstimate(pickup, dropoff);
+
+      // Generate OTP
+      const otp = this.generateOTP();
+
+      // Create ride in DB
+      const rideData = {
+        userId,
+        pickup: pickupAddress,
+        destination: dropoffAddress,
+        fare: fareEstimate.totalFare,
+        distance: fareEstimate.distance,
+        duration: fareEstimate.duration,
+        otp,
+        status: RIDE_STATUS.PENDING,
+      };
+
+      const newRide = await RideRepository.create(rideData);
+      logger.info("[RideService] Ride created successfully", {
+        rideId: newRide._id,
+      });
+
+      return newRide;
+    } catch (error) {
+      logger.error("[RideService] Error creating ride", error);
+      throw error;
+    }
   }
 
-  try {
-    console.log("🚗 Getting distance and time for fare calculation...");
-    const distanceTime = await mapService.getDistanceAndTime(
-      pickup,
-      destination
-    );
+  /**
+   * Calculate fare for a ride
+   * @param {Object} params - { pickup, destination }
+   * @returns {Object} Fare details
+   */
+  static async getFare({ pickup, destination }) {
+    try {
+      logger.info("[RideService] Calculating fare", { pickup, destination });
 
-    console.log("✅ Distance & Time received:", distanceTime);
+      // Get coordinates for both addresses
+      const pickupCoords = await MapsService.getAddressCoordinate(pickup);
+      const destCoords = await MapsService.getAddressCoordinate(destination);
 
-    const baseFare = {
-      auto: 30,
-      car: 50,
-      moto: 20,
-    };
+      if (!pickupCoords || !destCoords) {
+        throw new Error("Unable to get coordinates for provided addresses");
+      }
 
-    const perKmRate = {
-      auto: 10,
-      car: 15,
-      moto: 8,
-    };
+      // Get fare estimate from maps service
+      const fareEstimate = await MapsService.getFareEstimate(
+        pickupCoords,
+        destCoords,
+      );
 
-    const perMinuteRate = {
-      auto: 2,
-      car: 3,
-      moto: 1.5,
-    };
+      logger.info("[RideService] Fare calculated successfully", fareEstimate);
 
-    const fare = {
-      auto: Math.round(
-        baseFare.auto +
-          distanceTime.distance_km * perKmRate.auto +
-          distanceTime.duration_min * perMinuteRate.auto
-      ),
-      car: Math.round(
-        baseFare.car +
-          distanceTime.distance_km * perKmRate.car +
-          distanceTime.duration_min * perMinuteRate.car
-      ),
-      moto: Math.round(
-        baseFare.moto +
-          distanceTime.distance_km * perKmRate.moto +
-          distanceTime.duration_min * perMinuteRate.moto
-      ),
-    };
+      // Calculate fares for different vehicle types
+      const baseFares = {
+        car: 50, // UberGo
+        moto: 30, // Moto
+        auto: 40, // UberAuto
+      };
 
-    console.log("💰 Calculated fares:", fare);
-    return fare;
-  } catch (error) {
-    console.error("❌ Error in getFare:", error.message);
-    throw new Error(`Failed to calculate fare: ${error.message}`);
+      const perKmFares = {
+        car: 8,
+        moto: 5,
+        auto: 6,
+      };
+
+      const perMinuteFares = {
+        car: 1,
+        moto: 0.5,
+        auto: 0.75,
+      };
+
+      const vehicleFares = {};
+      Object.keys(baseFares).forEach((vehicleType) => {
+        vehicleFares[vehicleType] = Math.round(
+          baseFares[vehicleType] +
+            fareEstimate.distance * perKmFares[vehicleType] +
+            fareEstimate.duration * perMinuteFares[vehicleType],
+        );
+      });
+
+      return {
+        pickup,
+        destination,
+        distance: fareEstimate.distance,
+        duration: fareEstimate.duration,
+        car: vehicleFares.car,
+        moto: vehicleFares.moto,
+        auto: vehicleFares.auto,
+        currency: "INR",
+      };
+    } catch (error) {
+      logger.error("[RideService] Error calculating fare", error);
+      throw error;
+    }
   }
-};
 
-const getOtp = (num) => {
-  function generateOtp(num) {
-    const otp = crypto
-      .randomInt(Math.pow(10, num - 1), Math.pow(10, num))
-      .toString();
+  /**
+   * Find nearby captains for a ride
+   */
+  static async findNearbyCaptains(
+    rideId,
+    pickupCoordinates,
+    searchRadius = SEARCH_RADIUS.INITIAL,
+  ) {
+    try {
+      logger.debug("[RideService] Searching for captains", {
+        rideId,
+        latitude: pickupCoordinates.latitude,
+        longitude: pickupCoordinates.longitude,
+        radius: searchRadius,
+      });
+
+      const captains = await CaptainRepository.findNearby(
+        pickupCoordinates.latitude,
+        pickupCoordinates.longitude,
+        searchRadius,
+      );
+
+      logger.info("[RideService] Found captains", {
+        rideId,
+        count: captains.length,
+      });
+      return captains;
+    } catch (error) {
+      logger.error("[RideService] Error finding captains", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
+   * Accept ride (captain accepts)
+   */
+  static async acceptRide(rideId, captainId) {
+    try {
+      logger.info("[RideService] Captain accepting ride", {
+        rideId,
+        captainId,
+      });
+
+      const ride = await RideRepository.acceptRide(rideId, captainId);
+
+      // Invalidate related caches
+      await CacheService.invalidateRideCache(rideId);
+
+      logger.info("[RideService] Ride accepted", { rideId, captainId });
+      return ride;
+    } catch (error) {
+      logger.error("[RideService] Error accepting ride", error, {
+        rideId,
+        captainId,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Start ride (captain starts ride)
+   */
+  static async startRide(rideId, otp) {
+    try {
+      logger.info("[RideService] Starting ride", { rideId });
+
+      const ride = await RideRepository.findById(rideId);
+
+      if (!ride) {
+        throw new Error("Ride not found");
+      }
+
+      if (ride.status !== RIDE_STATUS.ACCEPTED) {
+        throw new Error("Ride must be accepted before starting");
+      }
+
+      // Verify OTP
+      if (ride.otp !== otp) {
+        throw new Error("Invalid OTP");
+      }
+
+      const updated = await RideRepository.updateStatus(
+        rideId,
+        RIDE_STATUS.ONGOING,
+        {
+          startedAt: new Date(),
+        },
+      );
+
+      // Clear OTP after verification
+      await RideRepository.clearOTP(rideId);
+
+      logger.info("[RideService] Ride started", { rideId });
+      return updated;
+    } catch (error) {
+      logger.error("[RideService] Error starting ride", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
+   * Complete ride
+   */
+  static async completeRide(rideId, endCoordinates = {}) {
+    try {
+      logger.info("[RideService] Completing ride", { rideId });
+
+      const updated = await RideRepository.completeRide(rideId, {
+        endLocation: endCoordinates,
+      });
+
+      await CacheService.invalidateRideCache(rideId);
+
+      logger.info("[RideService] Ride completed", { rideId });
+      return updated;
+    } catch (error) {
+      logger.error("[RideService] Error completing ride", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel ride
+   */
+  static async cancelRide(rideId, reason = "User cancelled") {
+    try {
+      logger.info("[RideService] Cancelling ride", { rideId, reason });
+
+      const updated = await RideRepository.cancelRide(rideId, reason);
+
+      await CacheService.invalidateRideCache(rideId);
+
+      logger.info("[RideService] Ride cancelled", { rideId });
+      return updated;
+    } catch (error) {
+      logger.error("[RideService] Error cancelling ride", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get ride by ID
+   */
+  static async getRideById(rideId, withDetails = false) {
+    try {
+      const ride = withDetails
+        ? await RideRepository.findByIdWithDetails(rideId)
+        : await RideRepository.findById(rideId);
+
+      return ride;
+    } catch (error) {
+      logger.error("[RideService] Error getting ride", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get user rides
+   */
+  static async getUserRides(userId, page = 1, limit = 20) {
+    try {
+      const rides = await RideRepository.getRidesByUserId(userId, page, limit);
+      return rides;
+    } catch (error) {
+      logger.error("[RideService] Error getting user rides", error, { userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Get captain rides
+   */
+  static async getCaptainRides(captainId, page = 1, limit = 20) {
+    try {
+      const rides = await RideRepository.getRidesByCaptainId(
+        captainId,
+        page,
+        limit,
+      );
+      return rides;
+    } catch (error) {
+      logger.error("[RideService] Error getting captain rides", error, {
+        captainId,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Generate OTP for ride verification
+   */
+  static generateOTP(length = 6) {
+    let otp = "";
+    for (let i = 0; i < length; i++) {
+      otp += Math.floor(Math.random() * 10);
+    }
     return otp;
   }
-  return generateOtp(num);
-};
+}
 
-const createRide = async ({ user, pickup, destination, vehicleType }) => {
-  if (!user || !pickup || !destination || !vehicleType) {
-    throw new Error("All fields are required to create a ride");
-  }
-
-  try {
-    console.log("📝 Creating ride with:", { pickup, destination, vehicleType });
-
-    const fare = await getFare({ pickup, destination });
-    console.log("✅ Fare obtained:", fare);
-
-    const newRide = await rideModel.create({
-      userId: user,
-      pickup,
-      destination,
-      vehicleType,
-      otp: getOtp(6),
-      fare: fare[vehicleType],
-    });
-
-    console.log("✅ Ride created with ID:", newRide._id);
-    return newRide;
-  } catch (error) {
-    console.error("❌ Error in createRide:", error.message);
-    throw new Error(`Failed to create ride: ${error.message}`);
-  }
-};
-
-const confirmRide = async ({ rideId, captain }) => {
-  if (!rideId) {
-    throw new Error("Ride id is required");
-  }
-
-  await rideModel.findOneAndUpdate(
-    {
-      _id: rideId,
-    },
-    {
-      status: "accepted",
-      captain: captain._id,
-    }
-  );
-
-  const ride = await rideModel
-    .findOne({
-      _id: rideId,
-    })
-    .populate("userId")
-    .populate("captain")
-    .select("+otp");
-
-  if (!ride) {
-    throw new Error("Ride not found");
-  }
-
-  console.log("ride.service.confirmRide");
-  console.log(ride);
-
-  return ride;
-};
-
-const startRide = async ({ rideId, otp, captain }) => {
-  if (!rideId || !otp) {
-    throw new Error("Ride id and OTP are required");
-  }
-
-  const ride = await rideModel
-    .findOne({
-      _id: rideId,
-    })
-    .populate("userId")
-    .populate("captain")
-    .select("+otp");
-
-  console.log("\n🔍 Ride details:");
-  console.log("  - Ride ID:", ride?._id);
-  console.log("  - Status:", ride?.status);
-  console.log("  - Stored OTP:", ride?.otp);
-  console.log("  - Provided OTP:", otp);
-  console.log("  - OTP Match:", ride?.otp === otp);
-
-  if (!ride) {
-    throw new Error("Ride not found");
-  }
-
-  if (ride.status !== "accepted") {
-    throw new Error(
-      `Ride status is "${ride.status}", expected "accepted". Cannot start ride that hasn't been accepted by a captain.`
-    );
-  }
-
-  if (ride.otp !== otp) {
-    throw new Error(`Invalid OTP. Expected: ${ride.otp}, Got: ${otp}`);
-  }
-
-  // Update ride status to ongoing
-  await rideModel.findOneAndUpdate(
-    {
-      _id: rideId,
-    },
-    {
-      status: "ongoing",
-    }
-  );
-
-  console.log("✅ Ride status updated to 'ongoing'");
-
-  return ride;
-};
-
-const endRide = async ({ rideId, captain }) => {
-  if (!rideId) {
-    throw new Error("Ride id is required");
-  }
-
-  const ride = await rideModel
-    .findOne({
-      _id: rideId,
-      captain: captain._id,
-    })
-    .populate("userId")
-    .populate("captain")
-    .select("+otp");
-
-  if (!ride) {
-    throw new Error("Ride not found");
-  }
-
-  if (ride.status !== "ongoing") {
-    throw new Error("Ride not ongoing");
-  }
-
-  await rideModel.findOneAndUpdate(
-    {
-      _id: rideId,
-    },
-    {
-      status: "completed",
-    }
-  );
-
-  return ride;
-};
-
-module.exports = { createRide, getFare, confirmRide, startRide, endRide };
+export default RideService;

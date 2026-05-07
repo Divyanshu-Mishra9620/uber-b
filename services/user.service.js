@@ -1,20 +1,20 @@
-const userModel=require("../models/user.model")
+import userModel from "../models/user.model.js";
 
-async function createUser({firstname, lastname,email,password})
-{
-    if(!firstname || !email || !password)
-        throw new Error("All Fields are required")
+async function createUser({ firstname, lastname, email, password }) {
+  if (!firstname || !email || !password)
+    throw new Error("All Fields are required");
 
-    // we will hash the password befor calling this function
-    const user=await userModel.create({
-        fullname:{
-            firstname,
-            lastname,
-        },
-        email,password,
-    })
+  // we will hash the password befor calling this function
+  const user = await userModel.create({
+    fullname: {
+      firstname,
+      lastname,
+    },
+    email,
+    password,
+  });
 
-    return user;
+  return user;
 }
 
-module.exports={createUser}
+export { createUser };

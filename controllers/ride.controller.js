@@ -1,8 +1,9 @@
-const rideService = require("../services/ride.service");
-const mapService = require("../services/maps.service");
-const { validationResult } = require("express-validator");
-const { sendMessageToSocketId } = require("../socket");
-const rideModel = require("../models/ride.model");
+import rideService from "../services/ride.service.js";
+import mapService from "../services/maps.service.js";
+import captainService from "../services/captain.service.js";
+import { validationResult } from "express-validator";
+import { sendMessageToSocketId } from "../socket-helpers.js";
+import rideModel from "../models/ride.model.js";
 
 const createRide = async (req, res, next) => {
   const errors = validationResult(req);
@@ -13,16 +14,17 @@ const createRide = async (req, res, next) => {
   const { pickup, destination, vehicleType } = req.body;
 
   try {
-    console.log(pickup, destination, vehicleType);
-    console.log(req.user);
-    const newRide = await rideService.createRide({
-      user: req.user._id,
+    console.log("📝 Creating ride:", { pickup, destination, vehicleType });
+    console.log("👤 User ID:", req.user._id);
+
+    const newRide = await rideService.createRide(
+      req.user._id,
       pickup,
       destination,
-      vehicleType,
-    });
-    console.log("New Ride");
-    console.log(newRide);
+      null, // pickupCoordinates (service will fetch)
+      null, // dropoffCoordinates (service will fetch)
+    );
+    console.log("✅ New Ride created:", newRide._id);
 
     const pickupCoordinates = await mapService.getAddressCoordinate(pickup);
 
@@ -32,24 +34,19 @@ const createRide = async (req, res, next) => {
 
     console.log("📍 Pickup coordinates:", pickupCoordinates);
 
-    const captainsInRadius = await mapService.getCaptainsInTheRadius(
-      pickupCoordinates.ltd,
-      pickupCoordinates.lng,
-      1000
-    );
+    // Find available captains (for now, just get all available captains)
+    // TODO: Implement geospatial search for captains within radius
+    const availableCaptains = await captainService.getAvailableCaptains();
 
-    console.log(`\n👥 Found ${captainsInRadius.length} captains in radius`);
+    console.log(`\n👥 Found ${availableCaptains.length} available captains`);
 
-    if (captainsInRadius.length === 0) {
-      console.warn("⚠️ WARNING: No captains found in 1000km radius!");
+    if (availableCaptains.length === 0) {
+      console.warn("⚠️ WARNING: No captains found!");
       console.warn("Possible reasons:");
-      console.warn("  1. No captains have joined and updated their location");
-      console.warn("  2. Captains are outside the 1000km search radius");
-      console.warn("  3. Captain location index not created in MongoDB");
+      console.warn("  1. No captains have joined the platform");
+      console.warn("  2. All captains are currently busy");
+      console.warn("  3. Captain status not properly updated");
     }
-
-    // DO NOT clear OTP - it's needed for verification later!
-    // newRide.otp = "";
 
     const rideWithUser = await rideModel
       .findOne({ _id: newRide._id })
@@ -57,12 +54,12 @@ const createRide = async (req, res, next) => {
       .select("+otp"); // Include OTP when sending to captain
 
     console.log(
-      `\n📤 Broadcasting new-ride to ${captainsInRadius.length} captains`
+      `\n📤 Broadcasting new-ride to ${availableCaptains.length} captains`,
     );
 
-    captainsInRadius.forEach((captain) => {
+    availableCaptains.forEach((captain) => {
       console.log(
-        `   → Sending to captain: ${captain._id} (socketId: ${captain.socketId})`
+        `   → Sending to captain: ${captain._id} (socketId: ${captain.socketId})`,
       );
       if (captain.socketId) {
         sendMessageToSocketId(captain.socketId, {
@@ -189,4 +186,4 @@ const endRide = async (req, res, next) => {
   }
 };
 
-module.exports = { createRide, getFare, confirmRide, startRide, endRide };
+export { createRide, getFare, confirmRide, startRide, endRide };

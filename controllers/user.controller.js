@@ -1,9 +1,8 @@
-const userModel = require("../models/user.model");
-const { createUser } = require("../services/user.service");
-const { validationResult } = require("express-validator");
-const blacklistTokenModel = require("../models/blacklistToken.model");
+import userModel from "../models/user.model.js";
+import { validationResult } from "express-validator";
+import blacklistTokenModel from "../models/blacklistToken.model.js";
 
-async function registerUser(req, res, next) {
+export async function registerUser(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -23,9 +22,11 @@ async function registerUser(req, res, next) {
 
     const hashedPassword = await userModel.hashPassword(password);
 
-    const user = await createUser({
-      firstname: fullname.firstname,
-      lastname: fullname.lastname,
+    const user = await userModel.create({
+      fullname: {
+        firstname: fullname.firstname,
+        lastname: fullname.lastname,
+      },
       email,
       password: hashedPassword,
     });
@@ -48,7 +49,7 @@ async function registerUser(req, res, next) {
   }
 }
 
-async function loginUser(req, res, next) {
+export async function loginUser(req, res, next) {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -58,7 +59,12 @@ async function loginUser(req, res, next) {
     const { email, password } = req.body;
     console.log("🔐 Login attempt for email:", email);
 
-    const user = await userModel.findOne({ email }).select("+password");
+    // Add a timeout to the query
+    const user = await userModel
+      .findOne({ email })
+      .select("+password")
+      .maxTimeMS(10000)
+      .exec();
 
     if (!user) {
       console.log("❌ User not found with email:", email);
@@ -85,18 +91,25 @@ async function loginUser(req, res, next) {
 
     res.status(200).json({ token, user: userResponse });
   } catch (error) {
-    console.error("❌ Login error:", error);
+    console.error("❌ Login error:", error.message);
+
+    // Provide better error messages
+    if (error.message.includes("timed out")) {
+      return res.status(503).json({
+        message: "Database connection timeout - please try again",
+        error: error.message,
+      });
+    }
+
     res.status(500).json({ message: "Login failed", error: error.message });
   }
 }
 
-// this will only be called if user is logged in and if yes then it has user details in req.user
-async function getUserProfile(req, res, next) {
+export async function getUserProfile(req, res, next) {
   res.status(200).json({ user: req.user });
 }
 
-// this will only be called if user is logged in and if yes then it will find token and clear cookie and put token in blacklisted model
-async function logoutUser(req, res, next) {
+export async function logoutUser(req, res, next) {
   const token = req.cookies.token || req.headers.authorization?.split(" ")[1];
   res.clearCookie("token");
 
@@ -104,5 +117,3 @@ async function logoutUser(req, res, next) {
 
   res.status(200).json({ message: "logged out" });
 }
-
-module.exports = { registerUser, loginUser, getUserProfile, logoutUser };

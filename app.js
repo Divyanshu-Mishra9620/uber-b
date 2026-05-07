@@ -1,92 +1,149 @@
-const dotenv = require("dotenv");
-dotenv.config();
-const cors = require("cors");
-const express = require("express");
-const { connectToDb } = require("./db/db");
-const userRoute = require("./routes/user.routes");
-const cookieParser = require("cookie-parser");
-const captainRoute = require("./routes/captain.routes");
-const mapsRoute = require("./routes/maps.routes");
-const rideRoute = require("./routes/ride.routes");
+import express from "express";
+import helmet from "helmet";
+import compression from "compression";
+import cors from "cors";
+import cookieParser from "cookie-parser";
+import logger from "./utils/logger.js";
+import userRoutes from "./routes/user.routes.js";
+import captainRoutes from "./routes/captain.routes.js";
+import rideRoutes from "./routes/ride.routes.js";
+import mapsRoutes from "./routes/maps.routes.js";
 
 const app = express();
-connectToDb();
 
-const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
+/**
+ * CORS: Enable cross-origin requests
+ * Allow frontend to communicate with backend
+ */
+app.use(
+  cors({
+    origin: [
       "http://localhost:5173",
-      "http://localhost:5174",
       "http://localhost:3000",
-      "https://uber-b-4vyh.vercel.app",
-    ];
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:3000",
+      process.env.FRONTEND_URL || "http://localhost:5173",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
-    // Allow requests with no origin (like mobile apps, curl requests)
-    if (
-      !origin ||
-      allowedOrigins.includes(origin) ||
-      origin.includes("vercel.app") ||
-      origin.includes("onrender.com")
-    ) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-};
+/**
+ * SECURITY: Helmet middleware
+ * Sets various HTTP headers for security
+ */
+app.use(helmet());
 
-app.use(cors(corsOptions));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+/**
+ * COMPRESSION: Compress responses
+ * Reduces bandwidth usage significantly
+ */
+app.use(compression());
+
+/**
+ * BODY PARSER: Parse request bodies
+ */
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
+/**
+ * COOKIE PARSER: Parse cookies from requests
+ */
 app.use(cookieParser());
 
-app.use("/users", userRoute);
-app.use("/captains", captainRoute);
-app.use("/maps", mapsRoute);
-app.use("/rides", rideRoute);
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    logger.info(
+      `[${req.method}] ${req.path} - ${res.statusCode} - ${duration}ms`,
+    );
+  });
+  next();
+});
 
-// Health check endpoint
+/**
+ * HEALTH CHECK: Basic health endpoint
+ */
 app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    message: "Server is running",
+  res.json({
+    status: "ok",
     timestamp: new Date().toISOString(),
-    port: process.env.PORT || 3000,
+    uptime: process.uptime(),
   });
 });
 
-// Debug endpoint - Check environment variables (only for development)
-app.get("/debug/env", (req, res) => {
-  if (process.env.NODE_ENV === "production") {
-    return res.status(403).json({ message: "Forbidden" });
+/**
+ * DB CHECK: Test database connection
+ */
+app.get("/db-check", async (req, res) => {
+  try {
+    const mongooseConnection = require("mongoose").connection;
+    if (mongooseConnection.readyState === 1) {
+      res.json({
+        status: "connected",
+        database: "MongoDB",
+        timestamp: new Date().toISOString(),
+      });
+    } else {
+      res.status(503).json({
+        status: "disconnected",
+        database: "MongoDB",
+        readyState: mongooseConnection.readyState,
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message: error.message,
+    });
   }
-
-  res.status(200).json({
-    PORT: process.env.PORT ? "✅ SET" : "❌ NOT SET",
-    JWT_SECRET: process.env.JWT_SECRET ? "✅ SET" : "❌ NOT SET",
-    DB_CONNECT: process.env.DB_CONNECT
-      ? "✅ SET (first 50 chars): " +
-        process.env.DB_CONNECT.substring(0, 50) +
-        "..."
-      : "❌ NOT SET",
-    NODE_ENV: process.env.NODE_ENV || "development",
-  });
 });
 
+/**
+ * ROOT ENDPOINT
+ */
 app.get("/", (req, res) => {
-  res.send("Hello World");
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error("❌ Global error:", err);
-  res.status(err.status || 500).json({
-    message: err.message || "Internal Server Error",
-    error: process.env.NODE_ENV === "development" ? err : {},
+  res.json({
+    message: "Uber Clone API - Phase 1 Optimized",
+    version: "1.0.0",
+    status: "running",
   });
 });
 
-module.exports = app;
+/**
+ * API ROUTES
+ */
+app.use("/users", userRoutes);
+app.use("/captains", captainRoutes);
+app.use("/rides", rideRoutes);
+app.use("/maps", mapsRoutes);
+
+/**
+ * 404 Handler
+ */
+app.use((req, res) => {
+  res.status(404).json({
+    status: "error",
+    message: "Route not found",
+    path: req.path,
+  });
+});
+
+/**
+ * GLOBAL ERROR HANDLER
+ * Must be last middleware
+ */
+app.use((err, req, res, next) => {
+  logger.error("Error:", err);
+  res.status(err.statusCode || 500).json({
+    status: "error",
+    message: err.message || "Internal server error",
+    ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+  });
+});
+
+export default app;

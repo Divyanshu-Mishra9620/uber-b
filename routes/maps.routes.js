@@ -1,15 +1,15 @@
-const express = require("express");
-const authMiddleware = require("../middlewares/auth.middleware");
-const router = express.Router();
-const { query } = require("express-validator");
+import express from "express";
+import { authUser } from "../middlewares/auth.middleware.js";
+import { query } from "express-validator";
+import * as mapController from "../controllers/maps.controller.js";
 
-const mapController = require("../controllers/maps.controller");
+const router = express.Router();
 
 router.get(
   "/get-coordinates",
   query("address").isString().isLength({ min: 3 }),
-  authMiddleware.authUser,
-  mapController.getCoordinates
+  authUser,
+  mapController.getCoordinates,
 );
 
 // router.get("/get-coordinates",mapController.getCoordinates)
@@ -18,8 +18,8 @@ router.get(
   "/get-distance-time",
   query("origin").isString().isLength({ min: 3 }),
   query("destination").isString().isLength({ min: 3 }),
-  authMiddleware.authUser,
-  mapController.getDistanceTime
+  authUser,
+  mapController.getDistanceTime,
 );
 
 // router.get("/get-distance-time",mapController.getDistanceTime)
@@ -28,7 +28,7 @@ router.get(
 router.get(
   "/get-suggestions",
   query("input").isString().isLength({ min: 3 }),
-  mapController.getSuggestions
+  mapController.getSuggestions,
 );
 
-module.exports = router;
+export default router;
