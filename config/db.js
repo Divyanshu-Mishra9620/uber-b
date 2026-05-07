@@ -9,8 +9,7 @@ let isConnected = false;
  */
 export async function connectDB() {
   try {
-    const mongoURI =
-      process.env.MONGODB_URI || "mongodb://localhost:27017/uber_clone";
+    const mongoURI = process.env.MONGODB_URI;
 
     logger.info(`🔗 Attempting to connect to MongoDB...`);
     logger.info(`   URL: ${mongoURI.substring(0, 50)}...`);
