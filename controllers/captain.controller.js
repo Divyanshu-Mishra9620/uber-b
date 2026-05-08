@@ -3,6 +3,8 @@ import blacklistTokenModel from "../models/blacklistToken.model.js";
 import { validationResult } from "express-validator";
 
 async function registerCaptain(req, res, next) {
+  console.log(req);
+
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     console.log("❌ Validation errors:", errors.array());
