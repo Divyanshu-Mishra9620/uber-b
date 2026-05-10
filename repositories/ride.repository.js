@@ -37,6 +37,19 @@ class RideRepository {
   }
 
   /**
+   * Find ride by ID and explicitly include the OTP
+   */
+  static async findByIdWithOtp(rideId) {
+    try {
+      const ride = await Ride.findById(rideId).select("+otp").lean();
+      return ride;
+    } catch (error) {
+      logger.error("[RideRepo] Error finding ride with OTP", error, { rideId });
+      throw error;
+    }
+  }
+
+  /**
    * Find ride with full details including user/captain
    * Use sparingly - only when full details needed
    */
@@ -118,7 +131,7 @@ class RideRepository {
       const updated = await Ride.findByIdAndUpdate(
         rideId,
         {
-          captainId,
+          captain: captainId,
           status: RIDE_STATUS.ACCEPTED,
           acceptedAt: new Date(),
         },
@@ -231,14 +244,13 @@ class RideRepository {
       const skip = (page - 1) * limit;
 
       const [rides, total] = await Promise.all([
-        Ride.find({ captainId })
-          .lean()
-          .select("-otp")
+        Ride.find({ captain: captainId })
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
+          .lean()
           .exec(),
-        Ride.countDocuments({ captainId }),
+        Ride.countDocuments({ captain: captainId }),
       ]);
 
       return {

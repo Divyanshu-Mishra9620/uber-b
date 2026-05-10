@@ -107,10 +107,9 @@ const confirmRide = async (req, res, next) => {
   const { rideId } = req.body;
 
   try {
-    const ride = await rideService.confirmRide({
-      rideId,
-      captain: req.captain,
-    });
+    await rideService.acceptRide(rideId, req.captain._id);
+
+    const ride = await rideModel.findOne({ _id: rideId }).populate('userId').populate('captain').select('+otp');
 
     //use socket to tell user that his ride is confirmed
     sendMessageToSocketId(ride.userId.socketId, {
@@ -140,12 +139,10 @@ const startRide = async (req, res, next) => {
   try {
     console.log(`\n🏁 Starting ride: ${rideId} with OTP: ${otp}`);
 
-    const ride = await rideService.startRide({
-      rideId,
-      otp,
-      captain: req.captain,
-    });
+    await rideService.startRide(rideId, otp);
     console.log("✅ Ride started successfully");
+
+    const ride = await rideModel.findOne({ _id: rideId }).populate('userId').populate('captain').select('+otp');
 
     sendMessageToSocketId(ride.userId.socketId, {
       event: "ride-started",
@@ -171,7 +168,10 @@ const endRide = async (req, res, next) => {
   const { rideId } = req.body;
 
   try {
-    const ride = await rideService.endRide({ rideId, captain: req.captain });
+    await rideService.completeRide(rideId);
+
+    const ride = await rideModel.findOne({ _id: rideId }).populate('userId').populate('captain').select('+otp');
+
     console.log(" ride.controller.endRide ");
     console.log(ride);
 

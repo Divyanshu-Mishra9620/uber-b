@@ -207,7 +207,7 @@ class RideService {
     try {
       logger.info("[RideService] Starting ride", { rideId });
 
-      const ride = await RideRepository.findById(rideId);
+      const ride = await RideRepository.findByIdWithOtp(rideId);
 
       if (!ride) {
         throw new Error("Ride not found");
